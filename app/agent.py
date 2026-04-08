@@ -126,7 +126,7 @@ class HealthAgent:
                 session_id = session.session_id
 
         # 2. 保存用户消息
-        self.memory.add_message(session_id, "user", user_input)
+        self.memory.add_message(session_id, "user", user_input) # 保存原始输入到会话记忆
 
         # 3. 分析用户状态
         state = self.analyzer.analyze(user_id, user_input)
@@ -233,6 +233,16 @@ class HealthAgent:
                     reasoning="用户查询天气",
                     confidence=0.95
                 )
+
+        # ========== 新增：营养查询检查 ==========
+        nutrition_keywords = ["热量", "卡路里", "营养", "蛋白质", "碳水", "脂肪"]
+        if any(kw in user_input for kw in nutrition_keywords):
+            return AgentAction(
+                action_type=ActionType.SUGGEST,
+                content=user_input,
+                reasoning="用户查询食物营养信息",
+                confidence=0.95
+            )
 
         # 2. 优先检查睡眠问题
         sleep_keywords = ["睡不着", "失眠", "睡眠", "睡不好", "入睡", "熬夜", "做梦"]
@@ -427,6 +437,50 @@ class HealthAgent:
                 "message": message,
                 "suggestions": ["出门注意防晒", "记得补充水分"]
             }
+
+        # ========== 新增：营养/热量查询 ==========
+        # 检查是否是营养相关问题
+        nutrition_keywords = ["热量", "卡路里", "营养", "蛋白质", "碳水", "脂肪", "维生素", "膳食纤维"]
+        # 常见食物关键词（用于触发营养分析）
+        food_keywords = ["苹果", "香蕉", "鸡蛋", "牛奶", "鸡胸肉", "牛肉", "米饭", "面包", "酸奶"]
+
+        is_nutrition_query = any(kw in user_message for kw in nutrition_keywords)
+        is_food_mentioned = any(food in user_message for food in food_keywords)
+
+        if is_nutrition_query or is_food_mentioned:
+            # 调用 NutritionAnalyzer 分析
+            result = self.nutrition_analyzer.analyze_meal(user_message)
+
+            if result.get("found_items"):
+                # 成功识别到食物
+                nutrition = result.get("nutrition", {})
+                calories = result.get("estimated_calories", 0)
+
+                message = f"📊 **{result.get('food', '食物')}的营养分析**\n\n"
+                message += f"🔥 热量：**{calories} kcal**\n"
+                message += f"🥩 蛋白质：{nutrition.get('protein', 0)} g\n"
+                message += f"🍚 碳水：{nutrition.get('carbs', 0)} g\n"
+                message += f"🧈 脂肪：{nutrition.get('fat', 0)} g\n"
+                if nutrition.get('fiber', 0) > 0:
+                    message += f"🌾 膳食纤维：{nutrition.get('fiber', 0)} g\n"
+
+                if result.get("suggestions"):
+                    message += f"\n💡 **建议**：{result['suggestions'][0]}"
+
+                return {
+                    "message": message,
+                    "suggestions": result.get("suggestions", [])
+                }
+            else:
+                # 没识别到食物，给出提示
+                return {
+                    "message": f"我暂时没识别出「{user_message}」中的食物。\n\n"
+                               f"你可以试试这样说：\n"
+                               f"• 「一个苹果有多少热量」\n"
+                               f"• 「100克鸡胸肉的热量」\n"
+                               f"• 「鸡蛋的营养成分」",
+                    "suggestions": ["试试更具体的描述", "可以说食物名称+热量"]
+                }
 
         # 2. 睡眠问题
         if "睡不着" in user_message or "失眠" in user_message or "睡不好" in user_message:
